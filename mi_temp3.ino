@@ -7,15 +7,15 @@
 
 BLEClient* pClient;
 
-const char*   WIFI_SSID       = "PF VIP";
-const char*   WIFI_PASSWORD   = "PFadmin3001";
+const char*   WIFI_SSID       = "";
+const char*   WIFI_PASSWORD   = "";
 
-const char*   MQTT_HOST       = "203.146.157.219";
+const char*   MQTT_HOST       = "";
 const int     MQTT_PORT       = 1883;
-const char*   MQTT_CLIENTID   = "miflora-client";
-const char*   MQTT_USERNAME   = "4nfam";
-const char*   MQTT_PASSWORD   = "as31as13a6s7";
-const String  MQTT_BASE_TOPIC = "4nfam/5/mi_temp_humi"; 
+const char*   MQTT_CLIENTID   = "";
+const char*   MQTT_USERNAME   = "";
+const char*   MQTT_PASSWORD   = "";
+const String  MQTT_BASE_TOPIC = ""; 
 const int     MQTT_RETRY_WAIT = 5000;
 
 float temp;
