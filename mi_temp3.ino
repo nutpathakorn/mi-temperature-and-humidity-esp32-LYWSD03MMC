@@ -2,40 +2,17 @@
 #include <SimpleTimer.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-
-#define LYWSD03MMC_ADDR "a4:c1:38:0e:56:0b"
-
-BLEClient* pClient;
-
-const char*   WIFI_SSID       = "PF VIP";
-const char*   WIFI_PASSWORD   = "PFadmin3001";
-
-const char*   MQTT_HOST       = "203.146.157.219";
-const int     MQTT_PORT       = 1883;
-const char*   MQTT_CLIENTID   = "miflora-client";
-const char*   MQTT_USERNAME   = "4nfam";
-const char*   MQTT_PASSWORD   = "as31as13a6s7";
-const String  MQTT_BASE_TOPIC = "4nfam/5/mi_temp_humi"; 
-const int     MQTT_RETRY_WAIT = 5000;
+#include "config.h"
 
 float temp;
 float humi;
 float batt;
 float volt;
 
-// sleep between to runs in seconds 30*60=30min
-#define SLEEP_DURATION 30 * 5
-// emergency hibernate countdown in seconds
-#define EMERGENCY_HIBERNATE 3 * 60
-// how often should the battery be read - in run count
-#define BATTERY_INTERVAL 6
-// how often should a device be retried in a run when something fails
-#define RETRY 3
-
 TaskHandle_t hibernateTaskHandle = NULL;
 
 bool connectionSuccessful = false;
-String baseTopic = MQTT_BASE_TOPIC + "/" + LYWSD03MMC_ADDR + "/";
+String baseTopic = MQTT_BASE_TOPIC + "/";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -43,13 +20,8 @@ PubSubClient client(espClient);
 // ESP32 MAC address
 char macAddr[18];
 
-// The remote service we wish to connect to.
 static BLEUUID serviceUUID("ebe0ccb0-7a0a-4b0c-8a1a-6ff2997da3a6");
-// The characteristic of the remote service we are interested in.ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6
 static BLEUUID    charUUID("ebe0ccc1-7a0a-4b0c-8a1a-6ff2997da3a6");
-//static BLEUUID    charUUID("ebe0ccc4-7a0a-4b0c-8a1a-6ff2997da3a6");
-
-//////////////////////////////////////////////////// WIFI /////////////////////////////////
 
 void connectWifi() {
   Serial.println("Connecting to WiFi...");
@@ -59,11 +31,7 @@ void connectWifi() {
     delay(500);
     Serial.print(".");
   }
-
-  Serial.println("");
   Serial.println("WiFi connected");
-  Serial.println("");
-  
   byte ar[6];
   WiFi.macAddress(ar);
   sprintf(macAddr,"%02X:%02X:%02X:%02X:%02X:%02X",ar[0],ar[1],ar[2],ar[3],ar[4],ar[5]);
@@ -74,10 +42,9 @@ void disconnectWifi() {
   Serial.println("WiFi disonnected");
 }
 
-//////////////////////////////////////////////////// END WIFI /////////////////////////////////
-
-//////////////////////////////////////////////////// MQTT ////////////////////////////////////
 void connectMqtt() {
+  Serial.println("Processing to send the deta to mqtt...");
+  Serial.println(""); 
   Serial.println("Connecting to MQTT...");
   client.setServer(MQTT_HOST, MQTT_PORT);
 
@@ -89,7 +56,6 @@ void connectMqtt() {
       delay(MQTT_RETRY_WAIT);
     }
   }
-
   Serial.println("MQTT connected");
   Serial.println("");
 }
@@ -97,17 +63,14 @@ void connectMqtt() {
 void disconnectMqtt() {
   client.disconnect();
   Serial.println("MQTT disconnected");
+  Serial.println("");
 }
 
-//////////////////////////////////////////////////// END MQTT ////////////////////////////////////
-
 void hibernate() {
-  
   esp_sleep_enable_timer_wakeup(SLEEP_DURATION * 1000000ll);
   Serial.println("Going to sleep now.");
   delay(100);
   esp_deep_sleep_start();
-  
 }
 
 void delayedHibernate(void *parameter) {
@@ -132,27 +95,25 @@ class MyClientCallback : public BLEClientCallbacks {
 
 static void notifyCallback(
   BLERemoteCharacteristic* pBLERemoteCharacteristic,
-  //char *pData,
   uint8_t* pData,
   size_t length,
   bool isNotify) {
-  //float temp;
-  //float humi;
   Serial.print("Notify callback for characteristic ");
   Serial.println(pBLERemoteCharacteristic->getUUID().toString().c_str());
+  
+  temp = NULL; humi = NULL; volt = NULL; batt = NULL;
   
   temp = (pData[0] | (pData[1] << 8)) * 0.01; //little endian 
   humi = pData[2];
   volt = ((pData[4] * 256) + pData[3]) / 1000.0;
   batt = (volt - 2.1) * 100.0;
   Serial.printf("temp = %.1f , humidity = %.1f , volt = %.1f , batt = %.1f \n", temp, humi, volt, batt);
-  
-  pClient->disconnect();
+  Serial.println("Disconnecting Bluetooth...");
+  delay(5000);
+  pClient->disconnect(); 
 }
 
 void registerNotification() {
-
-  // Obtain a reference to the service we are after in the remote BLE server.
   BLERemoteService* pRemoteService = pClient->getService(serviceUUID);
   if (pRemoteService == nullptr) {
     Serial.print("Failed to find our service UUID: ");
@@ -160,76 +121,74 @@ void registerNotification() {
     pClient->disconnect();
   }
   Serial.println(" - Found our service");
-
-  // Obtain a reference to the characteristic in the service of the remote BLE server.
   BLERemoteCharacteristic* pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
   if (pRemoteCharacteristic == nullptr) {
     Serial.print("Failed to find our characteristic UUID: ");
     Serial.println(charUUID.toString().c_str());
     pClient->disconnect();
   }
-  Serial.println(" - Found our characteristic");
-  
+  Serial.println(" - Found our characteristic");  
   pRemoteCharacteristic->registerForNotify(notifyCallback);
-
-  
 }
 
 void setup() {
   Serial.begin(115200);
 
-
-
-  // create a hibernate task in case something gets stuck
   xTaskCreate(delayedHibernate, "hibernate", 4096, NULL, 1, &hibernateTaskHandle);
 
   Serial.println("Initialize BLE-MI-T&H client...");
   delay(500);
   BLEDevice::init("ESP32");
   createBleClientWithCallbacks();
+  Serial.print("Total Devices = ");
+  Serial.println(deviceCount);
   
   delay(1000);
-  connectSensor();
-  registerNotification();
-
+  for (int i = 0; i < deviceCount; i++) {
+    
+  delay(1000);
+      Serial.print("");
+      Serial.print("Device MacAddress = ");
+      Serial.println(LYWSD03MMC_ADDR[i]);
+      connectSensor(LYWSD03MMC_ADDR[i]);
+      if(connectionSuccessful){
+       registerNotification(); 
+      }   
   delay(15000);
-  
   connectWifi();
   connectMqtt();
 
-  // MSG to MQTT
   char buffer1[64];
   char buffer2[64];
   char buffer3[64];
   char buffer4[64];
   snprintf(buffer1, 64, "%2.1f", temp);
-  if (client.publish((baseTopic + "temperature").c_str(), buffer1)) {
+  if (client.publish((baseTopic + LYWSD03MMC_ADDR[i] + "/temperature").c_str(), buffer1)) {
       Serial.println("   >> Published temp");
   }
   snprintf(buffer2, 64, "%2.1f", humi);
-  if (client.publish((baseTopic + "humidity").c_str(), buffer2)) {
+  if (client.publish((baseTopic + LYWSD03MMC_ADDR[i] + "/humidity").c_str(), buffer2)) {
       Serial.println("   >> Published humi");
   }
   snprintf(buffer3, 64, "%2.1f", volt);
-  if (client.publish((baseTopic + "voltage").c_str(), buffer3)) {
+  if (client.publish((baseTopic + LYWSD03MMC_ADDR[i] + "/voltage").c_str(), buffer3)) {
       Serial.println("   >> Published voltage");
   }
   snprintf(buffer4, 64, "%2.1f", batt);
-  if (client.publish((baseTopic + "battery").c_str(), buffer4)) {
+  if (client.publish((baseTopic + LYWSD03MMC_ADDR[i] + "/battery").c_str(), buffer4)) {
       Serial.println("   >> Published battery");
   }
-  
+  Serial.println("");
+  Serial.println("Disconnecting the internet and logout mqtt service...");
   delay(15000);
-  // disconnect wifi and mqtt
   disconnectWifi();
-  disconnectMqtt();
-  delay(10000);
-  // delete emergency hibernate task
-  
+  disconnectMqtt(); 
+  delay(15000); 
+ }
+  delay(15000);
+  Serial.println("Delete all visual tasks and preparing to sleep..");
   vTaskDelete(hibernateTaskHandle);
-  // go to sleep now 
   hibernate();
-  
 }
 
 void loop() {
@@ -242,7 +201,8 @@ void createBleClientWithCallbacks() {
   pClient->setClientCallbacks(new MyClientCallback());
 }
 
-void connectSensor() {
+void connectSensor(std::string devicesMacAdd) {
+  BLEAddress htSensorAddress(devicesMacAdd);
   pClient->connect(htSensorAddress);
   connectionSuccessful = true;
 }
